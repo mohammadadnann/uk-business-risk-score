@@ -19,15 +19,26 @@ RAW_DIR = Path(__file__).resolve().parents[1] / "data" / "raw"
 
 
 def fetch_company(number: str) -> dict:
-    """Call the three endpoints for one company and combine the results."""
+    """Call the three endpoints for one company and combine the results.
+    Retries once with a short wait if the API rate limits us.
+    """
     auth = (API_KEY, "")
-    profile = requests.get(f"{BASE_URL}/company/{number}", auth=auth).json()
-    filings = requests.get(f"{BASE_URL}/company/{number}/filing-history", auth=auth).json()
-    officers = requests.get(f"{BASE_URL}/company/{number}/officers", auth=auth).json()
+
+    def get_with_retry(url):
+        r = requests.get(url, auth=auth)
+        if r.status_code == 429:
+            time.sleep(int(r.headers.get("Retry-After", 5)))
+            r = requests.get(url, auth=auth)
+        r.raise_for_status()
+        return r.json()
+
+    profile = get_with_retry(f"{BASE_URL}/company/{number}")
+    filings = get_with_retry(f"{BASE_URL}/company/{number}/filing-history")
+    officers = get_with_retry(f"{BASE_URL}/company/{number}/officers")
     return {"profile": profile, "filings": filings, "officers": officers}
 
 
-def collect_cohort(cohort_path: str, sleep_seconds: float = 0.6) -> None:
+def collect_cohort(cohort_path: str, sleep_seconds: float = 2.0) -> None:
     """Loop over every company in the cohort and save its data, skipping
     anything already collected.
     """

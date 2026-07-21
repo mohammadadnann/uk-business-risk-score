@@ -37,3 +37,18 @@ filing history per company individually.
 
 I will need explicit missingness flags when I build features, rather than
 silently filling these in.
+
+## Collecting company data from the API
+I initially ran the collector at 0.6 seconds between companies. Around
+company 750 of 3000 I started seeing a high rate of failures. I checked one
+of the failed companies directly and found the API was returning
+429 Too Many Requests.
+
+I fixed this in two ways: I added automatic retry with backoff when a 429
+is returned, respecting the Retry-After header from the API. I also slowed
+the collector down, first to 1.2 seconds between companies, then to 2
+seconds for the final batch of retries. Because the collector already
+skips any company it has already saved, I was able to resume the run
+multiple times without losing progress or duplicating work.
+
+Final result: all 3000 companies collected, 0 failures.
