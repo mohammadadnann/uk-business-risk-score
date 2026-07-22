@@ -52,3 +52,25 @@ skips any company it has already saved, I was able to resume the run
 multiple times without losing progress or duplicating work.
 
 Final result: all 3000 companies collected, 0 failures.
+
+## Determining the failure date
+I found that a single filing type could not identify the start of
+liquidation for all failed companies. Voluntary liquidation is marked by
+a "600" filing (liquidation-voluntary-appointment-of-liquidator), covering
+899 companies. Compulsory liquidation is marked by a "COCOMP" filing
+(liquidation-compulsory-winding-up-order), covering a further 354.
+
+For the remaining 247 companies, I investigated further rather than
+excluding them immediately. About 149 were still Liquidation status but
+matched neither filing type. Checking one of these directly, I found its
+filing history stopped in the 1980s, using legacy pre-1987 filing codes,
+meaning Companies House holds no usable digital filing history for it at
+all. The remaining 98 companies were in non-liquidation distress statuses
+(In Administration, Receiver Manager, Voluntary Arrangement), which use
+entirely different filing codes that "600" and "COCOMP" would not be
+expected to match.
+
+I excluded these 247 companies from the labelled cohort rather than
+approximate a failure date for them, since a wrong date would introduce
+label noise. This leaves 1,253 failed companies with a reliable,
+evidence based failure date.
