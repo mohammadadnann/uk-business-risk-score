@@ -74,3 +74,27 @@ I excluded these 247 companies from the labelled cohort rather than
 approximate a failure date for them, since a wrong date would introduce
 label noise. This leaves 1,253 failed companies with a reliable,
 evidence based failure date.
+
+
+## Snapshot dates for live companies
+I assigned each live company a snapshot date sampled from the actual
+distribution of failed companies' snapshot dates, rather than using
+today's date for all of them. Using today for every live company would
+have let the model learn to distinguish failed from live based on how
+recent the record looked, rather than on real distress signals.
+
+I constrained sampling so a live company could only receive a snapshot
+date after its own incorporation date. 234 live companies (about 16%)
+were too recently incorporated to have any valid snapshot date at all
+and were excluded, since they would have had little to no filing
+history behind any snapshot date regardless. This leaves 1,266 live
+companies, closely balanced against the 1,253 failed companies.
+
+
+## Handling missing officer appointment dates
+About 10% of officer records (623 of 6,210) had no appointed_on date.
+Checking examples, these were consistently long serving officers from
+before Companies House digitised appointment dates, several already
+resigned by the mid 1990s. I treated a missing appointed_on as
+pre-snapshot by default, since these officers reliably predate every
+snapshot date in the cohort.
