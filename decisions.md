@@ -90,7 +90,6 @@ and were excluded, since they would have had little to no filing
 history behind any snapshot date regardless. This leaves 1,266 live
 companies, closely balanced against the 1,253 failed companies.
 
-
 ## Handling missing officer appointment dates
 About 10% of officer records (623 of 6,210) had no appointed_on date.
 Checking examples, these were consistently long serving officers from
@@ -98,3 +97,49 @@ before Companies House digitised appointment dates, several already
 resigned by the mid 1990s. I treated a missing appointed_on as
 pre-snapshot by default, since these officers reliably predate every
 snapshot date in the cohort.
+
+## Excluding fast failing companies
+I found 8 failed companies with a negative company age at their snapshot
+date. This happens when a company fails within 12 months of incorporation,
+since the snapshot date (failure date minus 12 months) then falls before
+the company existed. These companies have no genuine pre-snapshot history
+to build features from, so I excluded them, leaving 2511 companies in the
+features table.
+
+## Fixing the accounts due date fallback
+I found 84 companies missing days_overdue_on_accounts even though most
+had genuinely filed accounts before. Looking at the raw profile data
+directly, I found the cause: some records store the next due date under
+an older top level next_due field instead of the newer next_accounts.due_on
+field my function was reading. I added a fallback to check both, which
+recovered all but 83 companies.
+
+## Handling remaining missing values
+For the 83 companies still missing a due date, and 383 missing a longest
+filing gap (companies with fewer than two pre snapshot filings), I added
+a missingness flag column for each rather than guessing a value, then
+filled the missing values with 0. This lets the model learn from the
+pattern of missingness itself rather than treating a filled in 0 as a
+real measurement.
+
+
+## Fixing a leakage bug in the accounts overdue feature
+My original days_overdue_on_accounts feature read the company's current
+live profile, which is not filtered by snapshot date the way filings and
+officers are. For live companies with snapshot dates several years in the
+past, this compared a historical snapshot date against a present day due
+date, producing meaningless extreme values (over 11000 days in one case).
+All these extreme values were live companies, which was quietly making
+the feature look artificially predictive.
+
+I rebuilt the feature as days_since_last_accounts, computed only from
+filing history before the snapshot date, so it respects the leakage
+boundary for every company regardless of snapshot date. This is a more
+honest signal, and it changed my baseline substantially: precision at top
+10% dropped from 0.98 to 0.52. This was expected once I understood the
+bug, since the original figure was inflated by the leak.
+
+Final result on the corrected features: XGBoost achieves 0.60 precision
+and 0.19 recall at top 10%, against a baseline of 0.52 precision and 0.16
+recall using the single strongest feature alone. The model provides a
+real, modest improvement over the baseline once the leakage bug is fixed.
