@@ -143,3 +143,14 @@ Final result on the corrected features: XGBoost achieves 0.60 precision
 and 0.19 recall at top 10%, against a baseline of 0.52 precision and 0.16
 recall using the single strongest feature alone. The model provides a
 real, modest improvement over the baseline once the leakage bug is fixed.
+
+
+## Company age as the strongest feature
+SHAP analysis showed company_age_years as the model's most influential
+feature. Checking the underlying data, failed companies are older on
+average (mean 11.6 years) than live companies (mean 8.0 years), the
+opposite of what I initially expected. This makes sense given how the
+failed group is defined: formal liquidation typically follows years of
+accumulated debt and creditor relationships, so younger companies that
+fail are more likely to be struck off quietly rather than enter formal
+liquidation, and would not appear in this failed group at all.
