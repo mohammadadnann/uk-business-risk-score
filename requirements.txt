@@ -1,2 +1,9 @@
 pandas
 jupyter
+fastapi
+uvicorn
+fastapi
+uvicorn
+streamlit
+shap
+streamlit

@@ -154,3 +154,15 @@ failed group is defined: formal liquidation typically follows years of
 accumulated debt and creditor relationships, so younger companies that
 fail are more likely to be struck off quietly rather than enter formal
 liquidation, and would not appear in this failed group at all.
+
+
+## Out of distribution warning
+Testing the live API on Tesco PLC returned an implausible 62% risk score,
+driven almost entirely by company age. My training data mostly contains
+small and medium private limited companies that went through formal
+liquidation, so a company as old and large as Tesco falls far outside
+what the model learned from. I added a simple out of distribution flag
+(age over 50 years) that surfaces a caution warning in the dashboard,
+and excluded the director network feature from live explanations since
+it is not computed in real time and would be misleading to present as
+a genuine reason.
