@@ -1,7 +1,7 @@
-"""FastAPI service for the UK business risk model. Given a real company
-number, fetches its current data from Companies House, computes the same
-features used in training, and returns a risk score with SHAP based
-reasons.
+"""FastAPI service for the UK SME Credit Risk Intelligence Platform. Given
+a real company number, fetches its current data from Companies House,
+computes the same features used in training, and returns a risk score
+with SHAP based reasons.
 """
 
 import os
@@ -28,11 +28,15 @@ load_dotenv()
 API_KEY = os.getenv("CH_API_KEY")
 BASE_URL = "https://api.company-information.service.gov.uk"
 
-app = FastAPI(title="UK Business Risk Predictor")
+
+app = FastAPI(title="UK SME Credit Risk Intelligence Platform")
 
 model = xgb.XGBClassifier()
 model.load_model(Path(__file__).resolve().parents[1] / "data" / "model.json")
 explainer = shap.TreeExplainer(model)
+
+import joblib
+calibrated_model = joblib.load(Path(__file__).resolve().parents[1] / "data" / "calibrated_model.pkl")
 
 FEATURE_COLS = [
     "days_since_last_accounts", "count_late_confirmation_statements",
@@ -79,12 +83,12 @@ def score_company(company_number: str):
     profile = data["profile"]
 
     features = {
-        "days_since_last_accounts": int(round(days_since_last_accounts(filings, snapshot) or 0)),
+        "days_since_last_accounts": int(round(days_since_last_accounts(filings, snapshot))) if not pd.isna(days_since_last_accounts(filings, snapshot)) else 0,
         "count_late_confirmation_statements": count_late_confirmation_statements(filings),
         "count_recent_resignations": count_recent_resignations(officers, snapshot),
         "count_new_charges": count_new_charges(filings, snapshot),
         "company_age_years": round(company_age_years(profile, snapshot), 1),
-        "longest_filing_gap": int(round(longest_filing_gap(filings, snapshot) or 0)),
+        "longest_filing_gap": int(round(longest_filing_gap(filings, snapshot))) if not pd.isna(longest_filing_gap(filings, snapshot)) else 0,
         "director_distress_score_safe": 0,
     }
     features["accounts_missing"] = int(pd.isna(features["days_since_last_accounts"]))
@@ -93,7 +97,7 @@ def score_company(company_number: str):
     features["longest_filing_gap"] = features["longest_filing_gap"] or 0
 
     row = pd.DataFrame([features])[FEATURE_COLS]
-    risk_score = float(model.predict_proba(row)[0][1])
+    risk_score = float(calibrated_model.predict_proba(row)[0][1])
 
     shap_values = explainer.shap_values(row)[0]
     # Excluding the director network feature from live explanations, since it
@@ -118,19 +122,22 @@ def score_company(company_number: str):
         for name, shap_val, val in contributions[:5]
     ]
 
-    ocompany_category = profile.get("type", "")
     company_category = profile.get("type", "") or ""
-    out_of_distribution = (
-        features["company_age_years"] > 50
-        or features["count_recent_resignations"] >= 3
-        or "plc" in company_category.lower()
-    )
+    ood_reasons = []
+    if "plc" in company_category.lower():
+        ood_reasons.append("Public limited company (PLC)")
+    if features["company_age_years"] > 50:
+        ood_reasons.append("Company age well above training range")
+    if features["count_recent_resignations"] >= 3:
+        ood_reasons.append("Unusually high recent director turnover")
+    out_of_distribution = len(ood_reasons) > 0
 
     return {
         "company_number": company_number,
         "company_name": profile.get("company_name"),
-        "risk_score": round(risk_score, 4),
-        "top_reasons": top_reasons,
+        "risk_score": None if out_of_distribution else round(risk_score, 4),
+        "top_reasons": [] if out_of_distribution else top_reasons,
         "features": features,
         "out_of_distribution": out_of_distribution,
+        "ood_reasons": ood_reasons,
     }

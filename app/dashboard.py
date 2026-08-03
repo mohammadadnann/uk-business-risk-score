@@ -1,14 +1,26 @@
-"""Streamlit dashboard for the UK business risk model. Calls the running
-FastAPI service and displays a company's risk score with SHAP based
-reasons in a visual, readable way.
+"""Streamlit dashboard for the UK SME Credit Risk Intelligence Platform.
+Calls the running FastAPI service and displays a company's risk score
+with SHAP based reasons in a visual, readable way.
 """
 
 import requests
 import streamlit as st
+import os
+API_URL = os.getenv("API_URL", "http://127.0.0.1:8003")
 
-API_URL = "http://127.0.0.1:8003"
+FEATURE_LABELS_DISPLAY = {
+    "days_since_last_accounts": "Time since accounts filed",
+    "count_late_confirmation_statements": "Late confirmation statements",
+    "count_recent_resignations": "Recent director resignations",
+    "count_new_charges": "New charges registered",
+    "company_age_years": "Company age",
+    "longest_filing_gap": "Longest gap between filings",
+    "accounts_missing": "No accounts due date on record",
+    "filing_gap_missing": "Limited filing history",
+    "director_distress_score_safe": "Directors linked to prior failures",
+}
 
-st.set_page_config(page_title="UK Business Risk Predictor", page_icon="📊", layout="centered")
+st.set_page_config(page_title="UK SME Credit Risk Intelligence Platform", page_icon="📊", layout="centered")
 
 st.markdown(
     """
@@ -36,14 +48,14 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("📊 UK Business Risk Predictor")
-st.caption("Live insolvency risk scoring for UK companies, built on Companies House data.")
+st.title("📊 UK SME Credit Risk Intelligence Platform")
+st.caption("Live insolvency risk intelligence for UK SMEs, built on Companies House data.")
 
 col1, col2 = st.columns([3, 1])
 with col1:
     company_number = st.text_input(
-        "Company number", value="00006400",
-        label_visibility="collapsed", placeholder="Enter a UK company number"
+    "Company number", value="",
+    label_visibility="collapsed", placeholder="Enter a UK company number"
     )
 with col2:
     check = st.button("Check risk", use_container_width=True)
@@ -62,55 +74,71 @@ if check:
         data = response.json()
 
         if data.get("out_of_distribution"):
-            st.warning(
-                "This company is significantly older or larger than typical companies "
-                "in the training data (e.g. large PLCs). The model was trained mainly "
-                "on small and medium private limited companies, so this score should "
-                "be treated with extra caution."
+            st.markdown(
+                f"""
+                <div class="risk-card" style="background-color: #f0f0f0; border: 1px solid #ccc;">
+                    <p style="margin:0; font-size:1.1rem; color:#555;">{data['company_name']}</p>
+                    <p style="font-size:1.6rem; font-weight:700; margin:0.5rem 0;">⚠️ Prediction unavailable</p>
+                    <p style="margin:0; color:#555;">This company falls outside the population the model was trained on
+                    (UK private limited SMEs). A reliable insolvency risk estimate cannot be produced.</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
-
-        risk = data["risk_score"]
-
-        if risk >= 0.6:
-            css_class = "risk-high"
-            label = "High risk"
-        elif risk >= 0.3:
-            css_class = "risk-medium"
-            label = "Medium risk"
+            st.subheader("Reasons")
+            for reason in data.get("ood_reasons", []):
+                st.markdown(f"- {reason}")
         else:
-            css_class = "risk-low"
-            label = "Low risk"
+            risk = data["risk_score"]
 
-        risk_html = (
-            '<div class="risk-card ' + css_class + '">'
-            '<p style="margin:0; font-size:1.1rem; color:#555;">' + data["company_name"] + '</p>'
-            '<p class="risk-number">' + f"{risk * 100:.1f}%" + '</p>'
-            '<p style="margin:0; font-weight:600;">' + label + '</p>'
-            '</div>'
-        )
-        st.markdown(risk_html, unsafe_allow_html=True)
-
-        st.subheader("What's driving this score")
-        for reason in data["top_reasons"]:
-            if reason["direction"] == "increased":
-                direction_class = "reason-up"
-                arrow = "⬆️"
+            if risk >= 0.6:
+                css_class = "risk-high"
+                label = "High risk"
+            elif risk >= 0.3:
+                css_class = "risk-medium"
+                label = "Medium risk"
             else:
-                direction_class = "reason-down"
-                arrow = "⬇️"
+                css_class = "risk-low"
+                label = "Low risk"
 
-            reason_html = (
-                '<div class="reason-card ' + direction_class + '">'
-                + arrow + ' <strong>' + reason["feature"] + '</strong>'
-                + ' — value: ' + str(reason["value"]) + (" days" if reason["feature"] in ("Time since accounts filed", "Longest gap between filings") else "")
-                + '<br><span style="color:#666; font-size:0.9rem;">'
-                + reason["direction"].capitalize() + ' the risk score</span>'
+            risk_html = (
+                '<div class="risk-card ' + css_class + '">'
+                '<p style="margin:0; font-size:1.1rem; color:#555;">' + data["company_name"] + '</p>'
+                '<p class="risk-number">' + f"{risk * 100:.1f}%" + '</p>'
+                '<p style="margin:0; font-weight:600;">' + label + '</p>'
                 '</div>'
             )
-            st.markdown(reason_html, unsafe_allow_html=True)
+            st.markdown(risk_html, unsafe_allow_html=True)
 
-        with st.expander("See all raw feature values"):
+            st.subheader("What's driving this score")
+            for reason in data["top_reasons"]:
+                if reason["direction"] == "increased":
+                    direction_class = "reason-up"
+                    arrow = "⬆️"
+                else:
+                    direction_class = "reason-down"
+                    arrow = "⬇️"
+
+                reason_html = (
+                    '<div class="reason-card ' + direction_class + '">'
+                    + arrow + ' <strong>' + reason["feature"] + '</strong>'
+                    + ' — value: ' + str(reason["value"])
+                    + (" days" if reason["feature"] in ("Time since accounts filed", "Longest gap between filings") else "")
+                    + '<br><span style="color:#666; font-size:0.9rem;">'
+                    + reason["direction"].capitalize() + ' the risk score</span>'
+                    '</div>'
+                )
+                st.markdown(reason_html, unsafe_allow_html=True)
+
+        with st.expander("See remaining feature values"):
+            shown_features = {r["feature"] for r in data.get("top_reasons", [])}
+            # Mapping back from the display label to the underlying feature key,
+            # so we can skip anything already shown above.
+            remaining = {
+                key: value for key, value in data["features"].items()
+                if FEATURE_LABELS_DISPLAY.get(key, key) not in shown_features
+            }
             metric_cols = st.columns(3)
-            for i, (key, value) in enumerate(data["features"].items()):
+            for i, (key, value) in enumerate(remaining.items()):
                 with metric_cols[i % 3]:
                     st.metric(key.replace("_", " ").title(), value)
