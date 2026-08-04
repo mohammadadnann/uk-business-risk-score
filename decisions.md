@@ -1,4 +1,34 @@
-# Project decisions
+# UK SME Credit Risk Intelligence Platform — Design Decisions
+
+## Business Context & Credit Risk Challenge
+
+Traditional company risk assessment relies heavily on statutory filings,
+which may not reflect a company's latest financial position. Credit
+controllers, suppliers, landlords, and procurement teams assessing a UK
+company's insolvency risk often have limited access to timely predictive
+signals beyond statutory filings and commercial credit reports.
+
+According to the UK Government's Business Population Estimates 2025, the
+UK has approximately 5.69 million private sector businesses, of which
+5.68 million (99.85%) are SMEs. Only 8,335 businesses (0.15%) are large
+enough to be classified as large businesses. Large PLCs already have
+credit ratings, analyst coverage, and public financial disclosure. SMEs
+generally have significantly less access to these external risk
+assessment mechanisms.
+
+According to the Government's Business Insolvency Demography 2015 to
+2025, businesses with 10 to 249 employees experience higher insolvency
+rates than both micro businesses and large businesses. This highlights
+the importance of early-warning risk assessment within the SME segment,
+where access to sophisticated risk monitoring is typically more limited.
+
+I built this project to address that gap directly: a system that reads a
+company's public filing behaviour and produces a live, explained
+insolvency risk estimate for exactly the population that currently lacks
+one.
+
+Sources: [Business Population Estimates 2025](https://www.gov.uk/government/statistics/business-population-estimates-2025/business-population-estimates-for-the-uk-and-regions-2025-statistical-release),
+[Business Insolvency Demography 2015 to 2025](https://www.gov.uk/government/statistics/business-insolvency-demography-2015-to-2025)
 
 ## Scope: standard limited companies only
 I excluded the cohort to companies with an 8 digit numeric company number.
@@ -156,13 +186,85 @@ fail are more likely to be struck off quietly rather than enter formal
 liquidation, and would not appear in this failed group at all.
 
 
-## Out of distribution warning
-Testing the live API on Tesco PLC returned an implausible 62% risk score,
-driven almost entirely by company age. My training data mostly contains
-small and medium private limited companies that went through formal
-liquidation, so a company as old and large as Tesco falls far outside
-what the model learned from. I added a simple out of distribution flag
-(age over 50 years) that surfaces a caution warning in the dashboard,
-and excluded the director network feature from live explanations since
-it is not computed in real time and would be misleading to present as
-a genuine reason.
+## Out of distribution detection and withholding predictions
+The model is built specifically for UK private limited SMEs within the
+model's defined training population, in line with the business case
+above. PLCs, banks, and other large or structurally different entities
+were never the target population, so the API does not produce a risk
+score for them at all.
+
+I implemented an eligibility validation layer based on legal structure
+and company characteristics before applying the risk model. A company is
+excluded from scoring if it is registered as a PLC, if it is well outside
+the training data's typical company age range, or if it shows unusually
+high recent director turnover, since each of these indicates the company
+is unlikely to resemble the population the model was trained on. Rather
+than silently returning a number for any company regardless of type, if a
+company matches any of these checks, the API returns no prediction and
+instead returns the specific reason, and the dashboard shows a distinct
+"Prediction unavailable" state. This keeps the system's output honest and
+consistent with its stated scope: a score is only ever produced for the
+population the model was actually built to serve.
+
+
+## Calibrating the model
+I checked whether the model's predicted probabilities matched real world
+failure rates, using a calibration curve. The raw model was overconfident
+across most of the range, for example predicting 30% risk for companies
+that actually failed 45% of the time.
+
+I calibrated the model with isotonic regression, fit on a held out slice
+of training data rather than the test set, to avoid leaking test
+information into the calibration step itself. This reduced the average
+gap between predicted and actual failure rates from around 16 percentage
+points to around 11 across five probability bands.
+
+With around 500 companies in my test set, checking calibration at finer
+resolution than five bins becomes unreliable, since some bins then contain
+very few companies and the percentages become noisy. A larger cohort would
+allow tighter calibration validation. I consider the current calibration
+a genuine, verified improvement, not a fully solved problem.
+
+
+## Reporting overall and in-distribution precision honestly
+Rather than reporting only a precision figure computed after removing
+out-of-distribution companies, I report both. Overall precision at top
+10% is 0.72. Restricted to the 493 of 503 test companies that pass my
+out-of-distribution check (age under 50, fewer than 3 recent
+resignations), precision is 0.73, only marginally different because so
+few test companies (10, or 2%) are actually flagged. The real value of
+the out-of-distribution check is not on this test set, which was drawn
+from the same population the model was trained on, but on live lookups
+of companies structurally unlike anything in the training data, such as
+large PLCs, which the check is specifically designed to catch.
+
+## Validating the out of distribution detector
+I built a labelled validation set of 9 real UK companies: 4 large PLCs
+and banks I expected the detector to flag (Tesco, HSBC, Shell, Barclays)
+and 5 ordinary small companies drawn from my own training cohort that I
+expected it not to flag. Testing against the live API, the detector
+correctly classified all 9 (100% accuracy).
+
+While building this test, I found and fixed a real bug, for companies
+with no recorded accounts filing (returning NaN), my code used the
+pattern "value or 0" to provide a default, which silently fails because
+NaN is truthy in Python. This crashed every request for companies like
+Shell and Barclays that had missing accounts data. I fixed it using an
+explicit pd.isna() check instead.
+
+## Containerizing the project and finalizing scope
+I packaged the API and dashboard as separate Docker containers, connected
+via docker-compose, so the full system runs with a single command and no
+longer depends on my local machine's Python environment (this replaced
+a real, multi-hour dependency conflict I had hit locally between xgboost
+and the OpenMP runtime on Apple Silicon).
+
+I also added a small pytest suite covering the leakage filter and the
+core feature functions, verifying with automated tests that no
+post-snapshot information can leak into any feature, complementing the
+manual verification done throughout the project.
+
+Finally, I renamed the project to "UK SME Credit Risk Intelligence
+Platform" to accurately reflect its actual scope, after confirming the
+model reliably serves UK private limited SMEs and correctly declines to
+score companies outside that population.
