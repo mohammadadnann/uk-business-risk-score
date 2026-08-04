@@ -5,3 +5,6 @@ __pycache__/
 .ipynb_checkpoints/
 .venv/
 .DS_Store
+api.log
+streamlit.log
+.agents/
